@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# bt-menu — a small, minimalist Bluetooth manager.
+# Text UI via rofi (Hinterlands theme) + bluetoothctl. No GUI dependencies.
+#
+# Keys inside the menu: type to filter, Enter to select, Esc to go back/quit.
+#
+set -u
+
+THEME="${HOME}/.config/rofi/hinterlands.rasi"
+ROFI=(rofi -dmenu -i -no-custom -theme "${THEME}")
+
+notify() { notify-send -a Bluetooth "${1}" "${2:-}" >/dev/null 2>&1 || true; }
+pick()   { local prompt="$1"; shift; printf '%s\n' "$@" | "${ROFI[@]}" -p "$prompt"; }
+
+powered()   { bluetoothctl show 2>/dev/null   | awk -F': *' '/^[[:space:]]*Powered:/{print $2; exit}'; }
+conn_of()   { bluetoothctl info "$1" 2>/dev/null | awk -F': *' '/^[[:space:]]*Connected:/{print $2; exit}'; }
+paired_of() { bluetoothctl info "$1" 2>/dev/null | awk -F': *' '/^[[:space:]]*Paired:/{print $2; exit}'; }
+
+# All known devices (paired + cached) as:  <MAC>\t<Name>
+dev_list() {
+    bluetoothctl devices 2>/dev/null | while IFS= read -r line; do
+        local mac name
+        mac="$(awk '{print $2}' <<<"$line")"
+        [[ "$mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || continue
+        name="${line#Device $mac}"; name="${name# }"
+        [[ -z "$name" ]] && name="Unknown"
+        printf '%s\t%s\n' "$mac" "$name"
+    done
+}
+
+power_on()  { bluetoothctl power on     >/dev/null 2>&1
+              bluetoothctl pairable on  >/dev/null 2>&1; }
+power_off() { bluetoothctl power off    >/dev/null 2>&1; }
+
+scan_menu() {
+    [[ "$(powered)" == yes ]] || power_on
+    notify "Scanning…" "Looking for nearby devices (10s)"
+    bluetoothctl --timeout 10 scan on >/dev/null 2>&1
+
+    local -a labels=() macs=() names=()
+    while IFS=$'\t' read -r mac name; do
+        [[ -z "$mac" ]] && continue
+        [[ "$(paired_of "$mac")" == yes ]] && continue   # already known
+        labels+=("Pair & connect    ${name}")
+        macs+=("$mac"); names+=("$name")
+    done < <(dev_list)
+
+    [[ ${#labels[@]} -eq 0 ]] && { notify "No new devices" "Nothing found nearby"; return; }
+    local sel; sel="$(pick "  pair device" "${labels[@]}")" || return
+    local i; for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$sel" ]] && break; done
+    local mac="${macs[$i]}" name="${names[$i]}"
+    notify "Pairing…" "$name"
+    printf 'agent on\ndefault-agent\npair %s\ntrust %s\nconnect %s\n' "$mac" "$mac" "$mac" | bluetoothctl >/dev/null 2>&1
+    if [[ "$(conn_of "$mac")" == yes ]]; then notify "Connected" "$name"
+    else notify "Paired" "$name — not connected"; fi
+}
+
+devices_menu() {
+    local -a labels=() macs=() names=()
+    while IFS=$'\t' read -r mac name; do
+        [[ -z "$mac" ]] && continue
+        if   [[ "$(conn_of "$mac")"   == yes ]]; then labels+=("Disconnect    ${name}")
+        elif [[ "$(paired_of "$mac")" == yes ]]; then labels+=("Connect       ${name}")
+        else                                          labels+=("Pair & connect    ${name}"); fi
+        macs+=("$mac"); names+=("$name")
+    done < <(dev_list)
+
+    [[ ${#labels[@]} -eq 0 ]] && { notify "No known devices" "Try “Scan for devices”"; return; }
+    local sel; sel="$(pick "  devices" "${labels[@]}")" || return
+    local i; for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$sel" ]] && break; done
+    local mac="${macs[$i]}" name="${names[$i]}"
+    if [[ "$(conn_of "$mac")" == yes ]]; then
+        bluetoothctl disconnect "$mac" >/dev/null 2>&1 && notify "Disconnected" "$name"
+    elif [[ "$(paired_of "$mac")" == yes ]]; then
+        bluetoothctl connect "$mac" >/dev/null 2>&1
+        if [[ "$(conn_of "$mac")" == yes ]]; then notify "Connected" "$name"
+        else notify "Failed" "Could not connect to $name"; fi
+    else
+        notify "Pairing…" "$name"
+        printf 'agent on\ndefault-agent\npair %s\ntrust %s\nconnect %s\n' "$mac" "$mac" "$mac" | bluetoothctl >/dev/null 2>&1
+        if [[ "$(conn_of "$mac")" == yes ]]; then notify "Connected" "$name"
+        else notify "Paired" "$name — not connected"; fi
+    fi
+}
+
+main() {
+    while :; do
+        local -a opts=()
+        if [[ "$(powered)" == yes ]]; then
+            opts=("Scan for devices" "Devices" "Turn Bluetooth off" "Quit")
+        else
+            opts=("Turn Bluetooth on" "Quit")
+        fi
+        local sel; sel="$(pick "  bluetooth" "${opts[@]}")" || exit 0
+        case "$sel" in
+            "Turn Bluetooth on")  power_on;  notify "Bluetooth on";;
+            "Turn Bluetooth off") power_off; notify "Bluetooth off";;
+            "Scan for devices")   scan_menu;;
+            "Devices")            devices_menu;;
+            "Quit"|"")            exit 0;;
+        esac
+    done
+}
+
+main "$@"

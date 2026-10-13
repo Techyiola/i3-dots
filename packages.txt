@@ -1,0 +1,52 @@
+# Hinterlands i3 dotfiles — dependencies
+#
+# Official repos:
+#   sudo pacman -S --needed \
+#     i3-wm polybar rofi dunst alacritty picom feh pamixer libnotify \
+#     networkmanager bluez bluez-utils xorg-xrandr xorg-xrdb \
+#     i3lock-color redshift xob dex polkit-gnome \
+#     ttf-hack ttf-meslo-nerd awesome-terminal-fonts
+#
+# AUR (use paru or yay):
+#   paru -S --needed bibata-cursor-theme-bin zen-browser-bin
+
+# --- window manager / core ---
+i3-wm
+# --- bar ---
+polybar
+# --- launcher / menu ---
+rofi
+# --- notifications ---
+dunst
+libnotify            # provides notify-send (used by bt-menu)
+# --- terminal ---
+alacritty
+# --- compositor ---
+picom
+# --- wallpaper ---
+feh
+# --- audio ---
+pamixer
+# --- network ---
+networkmanager
+# --- bluetooth ---
+bluez
+bluez-utils
+# --- X helpers ---
+xorg-xrandr
+xorg-xrdb
+# --- lockscreen ---
+i3lock-color
+# --- niceties used by the i3 autostart ---
+redshift             # screen temperature
+xob                  # volume OSD (xob pipe)
+dex                  # runs ~/.config/autostart entries
+polkit-gnome         # authentication agent
+# --- fonts (required by polybar/rofi) ---
+ttf-hack
+ttf-meslo-nerd
+awesome-terminal-fonts
+# --- browser (optional, EOM) ---
+#   AUR:
+bibata-cursor-theme-bin
+zen-browser-bin
